@@ -2,11 +2,20 @@ export const q = (selector, root = document) => root.querySelector(selector);
 export const text = (selector, value) => { q(selector).textContent = value ?? '—'; };
 export const vector = (point) => point ? `(${point.join(', ')})` : '—';
 export const number = (value) => value == null ? '—' : Number(value).toLocaleString('zh-CN');
+export function feedback(message, error = false) {
+  const panel = q('#feedback');
+  panel.hidden = !message;
+  panel.classList.toggle('error', error);
+  panel.textContent = message ?? '';
+}
 export const labels = {
   PASS: '通过', FAIL: '失败', PENDING: '待测', CONFLICT: '冲突', ACTIVE: '有效芯粒',
   EDGE_EXCLUSION: '边缘保留带', NOTCH_VOID: '缺口空位', OUTSIDE_DISC: '圆片外',
   OUT_OF_GRID: '超出阵列', MATCH: '一致', REVIEW: '台账有差异', DIFFERENCE: '有差异',
   MISSING_REFERENCE: '缺交接台账', UNBALANCED: '阵列或行数失衡',
+  ADMIT: '可入批', HOLD: '待补证', REJECT: '不可入批',
+  FULL: '整片有证据', PARTIAL: '部分有证据', NONE: '无证据',
+  UNVERIFIED: '无证据不可核验',
 };
 
 export function element(tag, value, className) {
@@ -33,7 +42,9 @@ export function pairs(items) {
 
 export function status(code) {
   const variant = {PASS:'pass', FAIL:'fail', CONFLICT:'conflict', PENDING:'pending', MATCH:'pass',
-    REVIEW:'pending', DIFFERENCE:'pending', UNBALANCED:'fail'}[code] ?? '';
+    REVIEW:'pending', DIFFERENCE:'pending', UNBALANCED:'fail',
+    ADMIT:'pass', HOLD:'pending', REJECT:'fail', FULL:'pass', PARTIAL:'pending', NONE:'fail',
+    UNVERIFIED:'pending'}[code] ?? '';
   return element('span', labels[code] ?? code, `status ${variant}`);
 }
 
@@ -276,6 +287,166 @@ function auditView({audit, signal}) {
   draw();
 }
 
+const checkNames = {
+  coverage: '参照位覆盖', edge_void: '边缘空位左右镜像', measurement: '测值质量',
+};
+
+function missingList(review) {
+  const missing = review.checks.coverage.missing;
+  if (!missing.length) return element('p', '参照有效位全部有证据。', 'empty');
+  const box = element('div', null, 'missing-grid');
+  box.append(element('p', `${missing.length} 个格位没有该机台证据：`, 'data-strip'));
+  const chips = element('div', null, 'chips');
+  for (const point of missing) chips.append(element('span', vector([point.x, point.y]), 'chip mono'));
+  box.append(chips);
+  return box;
+}
+
+function edgeDetail(check) {
+  if (check.status === 'UNVERIFIED') {
+    return element('p', '该机台在边缘保留带与缺口空位没有任何原始行，无法核查是否整体左右翻。', 'empty');
+  }
+  const box = element('div', null, 'detail-group');
+  if (check.paired.length) {
+    box.append(element('p', `${check.paired.length} 组左右成对（或位于 X=0 轴上）：`, 'data-strip'));
+    table(box, check.paired.map((item) => ({...item, point: vector([item.x, item.y]),
+      mirror: vector([item.mirror_x, item.mirror_y])})), [
+      ['格位', 'point', 'mono'], ['分类', (item) => labels[item.code]], ['镜像位', 'mirror', 'mono'],
+      ['原行', (item) => item.evidence.map((row) => `${row.source}:${line(row)}`).join(' '), 'mono'],
+    ]);
+  }
+  if (check.unpaired.length) {
+    box.append(element('p', `${check.unpaired.length} 个空位找不到同分类的镜像证据：`, 'data-strip'));
+    table(box, check.unpaired.map((item) => ({...item, point: vector([item.x, item.y]),
+      mirror: vector([item.mirror_x, item.mirror_y])})), [
+      ['格位', 'point', 'mono'], ['分类', (item) => labels[item.code]], ['缺失镜像位', 'mirror', 'mono'],
+      ['原行', (item) => item.evidence.map((row) => `${row.source}:${line(row)}`).join(' '), 'mono'],
+    ]);
+  }
+  return box;
+}
+
+function renderDetail(target, review, stored, onDecide) {
+  target.replaceChildren();
+  const heading = element('div', null, 'detail-title');
+  heading.append(element('strong', `${review.wafer} · ${review.source}`), status(review.verdict));
+  target.append(heading);
+  target.append(pairs([
+    ['覆盖', `${review.checks.coverage.covered} / ${review.checks.coverage.active} 位（${review.checks.coverage.coverage_pct ?? '—'}%）`],
+    ['证据哈希', review.evidence_sha256.slice(0, 18) + '…'],
+  ]));
+  for (const key of review.check_order) {
+    const check = review.checks[key];
+    const row = element('div', null, 'check-row');
+    row.append(element('strong', checkNames[key]), status(check.status));
+    target.append(row);
+  }
+  if (stored) {
+    const banner = element('p', null, `stored-banner ${stored.state === 'stale' ? 'is-stale' : 'is-current'}`);
+    banner.textContent = stored.state === 'stale'
+      ? `旧结论（${labels[stored.verdict]}）引用的参照证据已变化，结论失效，请重算。`
+      : `已形成结论：${labels[stored.verdict]} · ${stored.recorded_at} UTC`;
+    target.append(banner);
+    if (stored.note) target.append(element('p', `备注：${stored.note}`, 'evidence-note'));
+  }
+  target.append(element('h3', '无证据格位', 'subhead'), missingList(review));
+  target.append(element('h3', '边缘空位镜像核查', 'subhead'), edgeDetail(review.checks.edge_void));
+  if (review.checks.measurement.issues.length) {
+    target.append(element('h3', '测值质量异常', 'subhead'));
+    table(target, review.checks.measurement.issues, issueColumns);
+  }
+  const actions = element('div', null, 'admission-actions');
+  const note = element('input', null, 'admission-note');
+  note.placeholder = '结论备注（可选）';
+  note.maxLength = 200;
+  if (stored?.note) note.value = stored.note;
+  const button = element('button', stored ? '重算并覆盖结论' : '形成入批结论', 'btn primary');
+  button.type = 'button';
+  button.addEventListener('click', onDecide(note));
+  actions.append(note, button);
+  target.append(actions);
+}
+
+async function admission({api, base, run, wafer, signal}) {
+  const data = await api(`${base}/admission`);
+  const reviews = data.reviews;
+  const waferReviews = reviews.filter((item) => item.wafer === wafer);
+  text('#admission-total', `${reviews.length} 组机台/晶圆 · 当前 ${waferReviews.length} 台`);
+  const sourceSelect = q('#admission-source');
+  const detail = q('#admission-detail');
+  const evidenceBox = q('#admission-evidence');
+  const load = detailLoader(detail, signal);
+  options(sourceSelect, waferReviews.map((item) => [item.source, item.source]), waferReviews[0]?.source);
+
+  const rowColumns = [
+    ['机台图档', 'source', 'mono'], ['晶圆', 'wafer', 'mono'],
+    ['结论', (item) => status(item.verdict)],
+    ['覆盖', (item) => `${item.checks.coverage.covered}/${item.checks.coverage.active}`, 'num'],
+    ['已归档结论', (item) => item.decision
+      ? (item.decision.state === 'stale'
+        ? element('span', '已失效', 'status fail')
+        : status(item.decision.verdict))
+      : element('span', '未形成', 'empty')],
+  ];
+
+  function reviewUrl(item, action = 'review') {
+    const query = new URLSearchParams({wafer: item.wafer, source: item.source});
+    return `${base}/admission/${action}?${query}`;
+  }
+
+  function showEvidence(current) {
+    const merged = current.checks.coverage.evidence
+      .concat(current.checks.edge_void.evidence).concat(current.checks.measurement.evidence);
+    const ids = new Set();
+    table(evidenceBox, merged.filter((row) => !ids.has(row.id) && ids.add(row.id)), [
+      ['图档', 'source', 'mono'], ['物理行', line, 'num'], ['晶圆', 'wafer', 'mono'],
+      ['机台原始坐标', original, 'num'], ['标准坐标', (row) => vector(row.transform.canonical), 'num'],
+      ['记账', (row) => row.code ?? '采信'], ['测次', (row) => row.measurement?.attempt ?? '—', 'num'],
+      ['判定', (row) => labels[row.measurement?.result] ?? '—'],
+    ], '该机台在本参照晶圆没有可引用的原始行。');
+  }
+
+  function show(item) {
+    const stateBadge = q('#admission-state');
+    const paintState = (decision) => {
+      stateBadge.textContent = decision
+        ? (decision.state === 'stale' ? '旧结论已失效' : '结论有效') : '尚未形成结论';
+      stateBadge.classList.toggle('stale-text', decision?.state === 'stale');
+    };
+    paintState(item.decision);
+    load(() => api(reviewUrl(item)), (review) => {
+      paintState(review.decision);
+      const decide = (noteInput) => () => load(async () => {
+        const reply = await api(`${base}/admission/decisions`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wafer: review.wafer, source: review.source, note: noteInput.value || null}),
+        });
+        const refreshed = await api(reviewUrl(item));
+        return {...refreshed, _created: reply.created, _superseded: reply.superseded};
+      }, (refreshed) => {
+        paintState(refreshed.decision);
+        renderDetail(detail, refreshed, refreshed.decision, decide);
+        const index = waferReviews.findIndex((row) => row.source === item.source);
+        waferReviews[index] = refreshed;
+        table(q('#admission-rows'), waferReviews, rowColumns);
+        showEvidence(refreshed);
+        feedback(refreshed._created ? '入批结论已形成并归档（每机台每晶圆仅一份）。'
+          : refreshed._superseded ? '参照证据已变化，旧结论失效并已按当前证据重算覆盖。'
+          : '结论按当前参照证据重算，未新增第二份。');
+      });
+      renderDetail(detail, review, review.decision, decide);
+    });
+    showEvidence(item);
+  }
+
+  table(q('#admission-rows'), waferReviews, rowColumns);
+  sourceSelect.addEventListener('change', () => {
+    const current = waferReviews.find((item) => item.source === sourceSelect.value);
+    if (current) show(current);
+  }, {signal});
+  if (waferReviews[0]) show(waferReviews[0]);
+}
+
 function runs({run, manifests}) {
   text('#history-total', `${manifests.length} 批`);
   table(q('#history-rows'), manifests, [
@@ -294,4 +465,4 @@ function runs({run, manifests}) {
   ]);
 }
 
-export const views = {intake, coordinates, retest, clusters, yield: auditView, runs};
+export const views = {intake, coordinates, retest, clusters, yield: auditView, admission, runs};

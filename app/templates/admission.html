@@ -1,0 +1,19 @@
+<div class="grid split">
+  <section class="panel">
+    <div class="panel__head">
+      <div><h2>机台 × 参照晶圆结论</h2><span class="panel__meta" id="admission-total">—</span></div>
+      <label>机台 <select id="admission-source" aria-label="机台图档"></select></label>
+    </div>
+    <div class="table-scroll tall" id="admission-rows"></div>
+  </section>
+  <section class="panel">
+    <div class="panel__head"><div><h2>入批结论与判据</h2><span class="panel__meta" id="admission-state">—</span></div></div>
+    <div class="panel__body detail-scroll" id="admission-detail" aria-live="polite">
+      <p class="empty">选择机台后载入参照证据。</p>
+    </div>
+  </section>
+</div>
+<section class="panel below">
+  <div class="panel__head"><h2>结论引用的原始行</h2><span class="panel__meta">机台原始坐标与标准坐标并列，可回溯到图档物理行</span></div>
+  <div class="table-scroll tall" id="admission-evidence"></div>
+</section>

@@ -1,0 +1,37 @@
+{
+  "sample": "qualify",
+  "label": "入批参照半片样例",
+  "lot": "FT26-Q05",
+  "sources": [
+    {
+      "name": "old-probe.csv",
+      "origin_x": 120,
+      "origin_y": 340,
+      "notch": "N",
+      "x_left": false,
+      "y_down": true,
+      "mirror": false,
+      "records": 59
+    },
+    {
+      "name": "new-probe.csv",
+      "origin_x": 700,
+      "origin_y": 880,
+      "notch": "E",
+      "x_left": false,
+      "y_down": true,
+      "mirror": true,
+      "records": 19
+    }
+  ],
+  "wafers": [
+    {
+      "wafer": "W-05",
+      "radius": 5,
+      "edge": 1,
+      "notch_depth": 2,
+      "notch_half_width": 1
+    }
+  ],
+  "ledger": []
+}

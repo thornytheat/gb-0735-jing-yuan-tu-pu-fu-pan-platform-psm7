@@ -1,5 +1,5 @@
 import {mapView} from './grid.js';
-import {labels, number, options, q, text, views} from './views.js';
+import {feedback, labels, number, options, q, text, views} from './views.js';
 
 const stage = document.body.dataset.stage;
 const state = {run: null, wafer: null, controller: null, working: false};
@@ -15,13 +15,6 @@ async function api(path, settings) {
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new Error(data?.message ?? (response.status === 422 ? '参数无效，请检查输入。' : `请求失败 HTTP ${response.status}`));
   return data;
-}
-
-function feedback(message, error = false) {
-  const panel = q('#feedback');
-  panel.hidden = !message;
-  panel.classList.toggle('error', error);
-  panel.textContent = message ?? '';
 }
 
 function controls() {
@@ -69,11 +62,10 @@ async function display(run, selected, manifests, params = new URLSearchParams())
   text('#connection', '正在载入');
   const audit = await request(`${base}/yield`);
   const context = {api: request, base, wafer, run, signal: controller.signal, audit, manifests, params};
-  await (stage === 'mask' ? mapView(context) : views[stage](context));
-  state.run = run;
+  await (stage === 'mask' ? mapView(context) : views[stage](context));  state.run = run;
   state.wafer = wafer;
   options(waferSelect, run.wafers.map((id) => [id, id]), wafer);
-  labelsFor(run, wafer, ['yield','runs','intake','coordinates'].includes(stage) ? audit.summary : audit.wafers.find((row) => row.wafer === wafer));
+  labelsFor(run, wafer, ['yield','runs','intake','coordinates','admission'].includes(stage) ? audit.summary : audit.wafers.find((row) => row.wafer === wafer));
   runAddress(params, run, wafer);
   exportLink.href = `${base}/export`;
   exportLink.hidden = false;

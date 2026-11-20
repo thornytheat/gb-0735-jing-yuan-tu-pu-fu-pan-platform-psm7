@@ -12,6 +12,8 @@ from app.modules.clusters import handler as clusters
 from app.modules.coordinates import handler as coordinates
 from app.modules.intake import handler as intake
 from app.modules.mask import handler as mask
+from app.modules.qualification import handler as qualification
+from app.modules.qualification.service import AdmissionService
 from app.modules.retest import handler as retest
 from app.modules.runs import handler as runs
 from app.modules.runs.service import RunService
@@ -29,9 +31,11 @@ def create_app(db=None, seed=True):
         yield
 
     instance = FastAPI(title="晶圆图谱复判台", lifespan=lifespan)
-    instance.state.runs = RunService(RunStore(db or database_path()))
+    store = RunStore(db or database_path())
+    instance.state.runs = RunService(store)
+    instance.state.admission = AdmissionService(store)
     instance.mount("/static", StaticFiles(directory=ROOT / "app/static"), name="static")
-    for module in (intake, coordinates, mask, retest, clusters, yield_audit, runs):
+    for module in (intake, coordinates, mask, retest, clusters, yield_audit, qualification, runs):
         instance.include_router(module.router)
     instance.include_router(web)
     instance.add_exception_handler(ReviewError, review_error)

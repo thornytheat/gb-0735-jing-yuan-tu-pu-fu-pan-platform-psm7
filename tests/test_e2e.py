@@ -5,7 +5,8 @@ from app.main import create_app
 
 def test_mixed_pipeline_reaches_all_seven_modules_and_evidence_export(client, run_base):
     routes = {"/intake": "files", "/coordinates": "rows", "/mask/W-07": "cells", "/retest/W-07": "issues",
-              "/clusters/W-07/C01": "points", "/yield": "wafers", "": "sources", "/export": "manifest"}
+              "/clusters/W-07/C01": "points", "/yield": "wafers", "": "sources", "/export": "manifest",
+              "/admission": "reviews"}
     for route, key in routes.items():
         response = client.get(run_base + route)
         assert response.status_code == 200, route
@@ -15,7 +16,7 @@ def test_mixed_pipeline_reaches_all_seven_modules_and_evidence_export(client, ru
 
 def test_workbench_pages_serve_chinese_controls_and_local_assets(client):
     pages = {"/":"有效芯粒", "/intake":"图档采信", "/coordinates":"坐标对表", "/retest":"复测裁决",
-             "/clusters":"缺陷簇", "/yield":"良率勾稽", "/runs":"图批复盘"}
+             "/clusters":"缺陷簇", "/yield":"良率勾稽", "/admission":"入批裁决", "/runs":"图批复盘"}
     for path, title in pages.items():
         response = client.get(path)
         assert response.status_code == 200, path

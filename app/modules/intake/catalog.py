@@ -11,6 +11,7 @@ CATALOG = {
     "mixed": "复判混合样例",
     "baseline": "单档基准样例",
     "truncated": "截断探针图",
+    "qualify": "入批参照半片样例",
 }
 
 

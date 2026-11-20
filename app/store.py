@@ -27,6 +27,19 @@ class RunStore:
                     pinned TEXT NOT NULL
                 )
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS admission_decisions (
+                    run_id TEXT NOT NULL,
+                    wafer TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (run_id, wafer, source)
+                )
+            """)
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_admission_run ON admission_decisions (run_id)")
 
     def put(self, manifest, snapshot, pinned):
         with self.connect() as connection:
@@ -51,3 +64,32 @@ class RunStore:
         with self.connect() as connection:
             rows = connection.execute("SELECT manifest FROM wafer_runs ORDER BY rowid DESC").fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def get_admission(self, run_id, wafer, source):
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT decision FROM admission_decisions WHERE run_id = ? AND wafer = ? AND source = ?",
+                (run_id, wafer, source)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def list_admission(self, run_id):
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT decision FROM admission_decisions WHERE run_id = ? ORDER BY rowid", (run_id,)).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def put_admission(self, decision):
+        key = (decision["run_id"], decision["wafer"], decision["source"])
+        payload = canonical(decision)
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO admission_decisions (run_id, wafer, source, decision, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, wafer, source) DO NOTHING",
+                (*key, payload, decision["recorded_at"], decision["recorded_at"]))
+            created = connection.execute("SELECT changes()").fetchone()[0] == 1
+            if not created:
+                connection.execute(
+                    "UPDATE admission_decisions SET decision = ?, updated_at = ?"
+                    " WHERE run_id = ? AND wafer = ? AND source = ?",
+                    (payload, decision["recorded_at"], *key))
+        return created
